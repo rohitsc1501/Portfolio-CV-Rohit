@@ -368,39 +368,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const photoData = photoItems.map(item => ({
     src   : item.querySelector('img').src,
     alt   : item.querySelector('img').alt,
-    title : item.querySelector('.photo-title')?.textContent || '',
-    cat   : item.dataset.category,
-    el    : item
+    title : item.querySelector('.photo-view-label')?.textContent || '',
+    el    : item,
+    id    : item.querySelector('.like-count')?.dataset.photoId || 'photo_unknown'
   }));
 
-  /* ---- Filter Buttons ---- */
-  const filterBtns = document.querySelectorAll('.photo-filter-btn');
-
-  filterBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      // Update active state
-      filterBtns.forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-
-      const filter = btn.dataset.filter;
-      let visibleIndex = 0;
-
-      photoItems.forEach((item) => {
-        const cat = item.dataset.category;
-        const show = filter === 'all' || cat === filter;
-
-        if (show) {
-          item.classList.remove('hidden-photo');
-          // Stagger reveal
-          item.style.transitionDelay = (visibleIndex * 0.06) + 's';
-          visibleIndex++;
-        } else {
-          item.classList.add('hidden-photo');
-          item.style.transitionDelay = '0s';
-        }
-      });
-    });
-  });
+  let visiblePhotos  = [...photoData]; // All photos are visible now
 
   /* ---- Lightbox ---- */
   const lightbox        = document.getElementById('lightbox');
@@ -413,73 +386,163 @@ document.addEventListener('DOMContentLoaded', () => {
   const lightboxBg      = document.getElementById('lightboxBackdrop');
   const lightboxSpinner = document.getElementById('lightboxSpinner');
 
-  if (!lightbox) return;
-
   let currentIndex   = 0;
-  let visiblePhotos  = [...photoData]; // updated when filter changes
-
-  // Get currently visible (non-hidden) photos
-  function getVisible() {
-    return photoData.filter(d => !d.el.classList.contains('hidden-photo'));
-  }
 
   // Open lightbox
   function openLightbox(dataIndex) {
-    visiblePhotos = getVisible();
-    const posInVisible = visiblePhotos.findIndex(d => d === photoData[dataIndex]);
-    currentIndex = posInVisible >= 0 ? posInVisible : 0;
+    currentIndex = dataIndex;
     loadPhoto(currentIndex);
-    lightbox.classList.add('open');
+    if(lightbox) lightbox.classList.add('open');
     document.body.style.overflow = 'hidden';
   }
 
   // Close lightbox
   function closeLightbox() {
-    lightbox.classList.remove('open');
+    if(lightbox) lightbox.classList.remove('open');
     document.body.style.overflow = '';
   }
 
   // Load photo at index
   function loadPhoto(idx) {
-    visiblePhotos = getVisible();
     if (!visiblePhotos.length) return;
     currentIndex = ((idx % visiblePhotos.length) + visiblePhotos.length) % visiblePhotos.length;
 
     const photo = visiblePhotos[currentIndex];
 
     // Show spinner
-    lightboxSpinner.classList.add('active');
-    lightboxImg.classList.add('loading');
+    if(lightboxSpinner) lightboxSpinner.classList.add('active');
+    if(lightboxImg) lightboxImg.classList.add('loading');
 
     const tempImg = new Image();
     tempImg.onload = () => {
-      lightboxImg.src            = photo.src;
-      lightboxImg.alt            = photo.alt;
-      lightboxCaption.textContent = photo.title;
-      lightboxCounter.textContent = `${currentIndex + 1} / ${visiblePhotos.length}`;
-      lightboxImg.classList.remove('loading');
-      lightboxSpinner.classList.remove('active');
+      if(lightboxImg) lightboxImg.src = photo.src;
+      if(lightboxImg) lightboxImg.alt = photo.alt;
+      if(lightboxCaption) lightboxCaption.textContent = photo.title;
+      if(lightboxCounter) lightboxCounter.textContent = `${currentIndex + 1} / ${visiblePhotos.length}`;
+      if(lightboxImg) lightboxImg.classList.remove('loading');
+      if(lightboxSpinner) lightboxSpinner.classList.remove('active');
     };
     tempImg.src = photo.src;
   }
 
+  /* ---- Like System ---- */
+  const API_BASE = 'https://api.counterapi.dev/v1/rohitportfolio2026/';
+
+  function getLikes() {
+    return JSON.parse(localStorage.getItem('portfolio_likes')) || {};
+  }
+  function saveLikes(likesObj) {
+    localStorage.setItem('portfolio_likes', JSON.stringify(likesObj));
+  }
+
+  async function fetchGlobalCount(photoId, countEl) {
+    try {
+      const res = await fetch(API_BASE + photoId);
+      const data = await res.json();
+      if (data && data.count !== undefined) {
+        countEl.textContent = data.count;
+      }
+    } catch (err) {
+      console.error('Failed to fetch count for', photoId);
+    }
+  }
+
+  async function handleLike(photoId, badgeEl, animEl, countEl) {
+    let likes = getLikes();
+    const isLiked = !!likes[photoId];
+    
+    // Optimistic UI Update
+    let currentCount = parseInt(countEl.textContent) || 0;
+    
+    if (isLiked) {
+      // Unlike it
+      delete likes[photoId];
+      saveLikes(likes);
+      badgeEl.classList.remove('liked');
+      countEl.textContent = Math.max(0, currentCount - 1);
+      
+      try {
+        await fetch(API_BASE + photoId + '/down');
+      } catch (err) { console.error(err); }
+    } else {
+      // Like it
+      likes[photoId] = true;
+      saveLikes(likes);
+      badgeEl.classList.add('liked');
+      countEl.textContent = currentCount + 1;
+      
+      // Trigger heart animation
+      if (animEl) {
+        animEl.classList.remove('animate');
+        void animEl.offsetWidth; // trigger reflow
+        animEl.classList.add('animate');
+      }
+      
+      try {
+        await fetch(API_BASE + photoId + '/up');
+      } catch (err) { console.error(err); }
+    }
+  }
+
+  // Init likes on page load
+  const localLikes = getLikes();
+
   // Attach click to each photo item
-  photoItems.forEach((item) => {
-    item.addEventListener('click', () => {
-      const idx = parseInt(item.dataset.index, 10);
-      openLightbox(idx);
+  photoItems.forEach((item, index) => {
+    const photoId = photoData[index].id;
+    const badgeEl = item.querySelector('.like-badge');
+    const animEl = item.querySelector('.like-heart-anim');
+    const countEl = item.querySelector('.like-count');
+
+    // Load initial local state
+    if (localLikes[photoId]) {
+      if (badgeEl) badgeEl.classList.add('liked');
+    }
+    
+    // Fetch global count
+    if (countEl) {
+      fetchGlobalCount(photoId, countEl);
+    }
+
+    let lastTap = 0;
+
+    item.addEventListener('click', (e) => {
+      const now = new Date().getTime();
+      const timeSince = now - lastTap;
+      
+      // If clicked on the badge, just toggle like
+      if (e.target.closest('.like-badge')) {
+        handleLike(photoId, badgeEl, animEl, countEl);
+        lastTap = 0; // reset
+        return;
+      }
+
+      if (timeSince < 300 && timeSince > 0) {
+        // Double tap!
+        handleLike(photoId, badgeEl, animEl, countEl);
+        lastTap = 0; // reset
+      } else {
+        // Single tap, could be to open lightbox
+        lastTap = now;
+        // Delay opening lightbox slightly to allow double tap to catch
+        setTimeout(() => {
+          if (lastTap !== 0) {
+            openLightbox(index);
+          }
+        }, 320);
+      }
     });
   });
 
   // Nav buttons
-  lightboxClose.addEventListener('click', closeLightbox);
-  lightboxBg.addEventListener('click', closeLightbox);
-  lightboxPrev.addEventListener('click', (e) => { e.stopPropagation(); loadPhoto(currentIndex - 1); });
-  lightboxNext.addEventListener('click', (e) => { e.stopPropagation(); loadPhoto(currentIndex + 1); });
+  if(lightboxClose) lightboxClose.addEventListener('click', closeLightbox);
+  if(lightboxBg) lightboxBg.addEventListener('click', closeLightbox);
+  if(lightboxPrev) lightboxPrev.addEventListener('click', (e) => { e.stopPropagation(); loadPhoto(currentIndex - 1); });
+  if(lightboxNext) lightboxNext.addEventListener('click', (e) => { e.stopPropagation(); loadPhoto(currentIndex + 1); });
 
   // Keyboard navigation
   document.addEventListener('keydown', (e) => {
-    if (!lightbox.classList.contains('open')) return;
+    if (!lightbox || !lightbox.classList.contains('open')) return;
     if (e.key === 'Escape')       closeLightbox();
     if (e.key === 'ArrowLeft')    loadPhoto(currentIndex - 1);
     if (e.key === 'ArrowRight')   loadPhoto(currentIndex + 1);
@@ -487,20 +550,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Touch/swipe support
   let touchStartX = 0;
-  lightbox.addEventListener('touchstart',  (e) => { touchStartX = e.touches[0].clientX; }, { passive: true });
-  lightbox.addEventListener('touchend', (e) => {
-    const delta = e.changedTouches[0].clientX - touchStartX;
-    if (Math.abs(delta) > 50) {
-      delta < 0 ? loadPhoto(currentIndex + 1) : loadPhoto(currentIndex - 1);
-    }
-  });
-
-  // Sync visible list when filter changes
-  filterBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      visiblePhotos = getVisible();
+  if(lightbox) {
+    lightbox.addEventListener('touchstart',  (e) => { touchStartX = e.touches[0].clientX; }, { passive: true });
+    lightbox.addEventListener('touchend', (e) => {
+      const delta = e.changedTouches[0].clientX - touchStartX;
+      if (Math.abs(delta) > 50) {
+        delta < 0 ? loadPhoto(currentIndex + 1) : loadPhoto(currentIndex - 1);
+      }
     });
-  });
+  }
 
 })();
 
@@ -696,6 +754,148 @@ document.addEventListener('DOMContentLoaded', () => {
       spotify: 'https://open.spotify.com/album/5OEnuGjCeywpxQOgmbW3w1',
       apple: 'https://music.apple.com/us/album/house-of-balloons-original/1557997973'
     },
+    { 
+      title: 'I AM MUSIC', 
+      artist: 'Playboi Carti',   
+      src: 'photos/new_album6.png',
+      info: 'The highly anticipated album from Playboi Carti, featuring a diverse cast of collaborators and groundbreaking rap sounds.',
+      spotify: 'https://open.spotify.com/artist/699OTQXzgjhIYAHMy9RyPD',
+      apple: 'https://music.apple.com/us/artist/playboi-carti/1047648316'
+    },
+    { 
+      title: 'The Life of Pablo', 
+      artist: 'Kanye West',   
+      src: 'photos/new_album7.png',
+      info: 'A sprawling, chaotic, and beautiful gospel-rap masterpiece exploring themes of faith, fame, and family.',
+      spotify: 'https://open.spotify.com/album/7gsWAHLeT0w7es6FofOXk1',
+      apple: 'https://music.apple.com/us/album/the-life-of-pablo/112323188'
+    },
+    { 
+      title: 'Graduation', 
+      artist: 'Kanye West',   
+      src: 'photos/new_album8.png',
+      info: 'An electronic-infused hip-hop triumph that defined an era with its stadium anthems and futuristic production.',
+      spotify: 'https://open.spotify.com/album/4SZko61aMnmgvNhvcgZWS4',
+      apple: 'https://music.apple.com/us/album/graduation/1451901307'
+    },
+    { 
+      title: 'My Beautiful Dark Twisted Fantasy', 
+      artist: 'Kanye West',   
+      src: 'photos/new_album9.png',
+      info: 'A maximalist, sonically lush magnum opus dealing with excess, celebrity, and the American dream.',
+      spotify: 'https://open.spotify.com/album/20r762YmB5HeofjMCiPMLv',
+      apple: 'https://music.apple.com/us/album/my-beautiful-dark-twisted-fantasy/1441456603'
+    },
+    { 
+      title: 'The Melodic Blue', 
+      artist: 'Baby Keem',   
+      src: 'photos/new_album10.png',
+      info: 'A versatile and boundary-pushing album featuring innovative flows and eclectic beats from the rising rap star.',
+      spotify: 'https://open.spotify.com/album/3AzzEygqhhlA4CVkZ6XieN',
+      apple: 'https://music.apple.com/us/album/the-melodic-blue/1584667851'
+    },
+    { 
+      title: 'ICEMAN', 
+      artist: 'Drake',   
+      src: 'photos/new_album11.png',
+      info: 'A captivating new release that blends intricate storytelling with atmospheric production, showcasing evolution in sound.'
+    },
+    { 
+      title: 'Views', 
+      artist: 'Drake',   
+      src: 'photos/new_album12.png',
+      info: 'An iconic tribute to his hometown, fusing dancehall and R&B influences into a chart-topping masterpiece.'
+    },
+    { 
+      title: 'More Life', 
+      artist: 'Drake',   
+      src: 'photos/new_album13.png',
+      info: 'A curated playlist that seamlessly blends global sounds, featuring memorable collaborations and infectious rhythms.'
+    },
+    { 
+      title: 'Take Care', 
+      artist: 'Drake',   
+      src: 'photos/new_album15.png',
+      info: 'A classic opus filled with emotional depth, lush production, and defining moments in modern rap.'
+    },
+    { 
+      title: 'Thank Me Later', 
+      artist: 'Drake',   
+      src: 'photos/new_album16.png',
+      info: 'A confident debut showcasing introspective lyricism layered over polished, mood-driven production.'
+    },
+    { 
+      title: 'Ved', 
+      artist: 'Ritviz',   
+      src: 'photos/new_album17.png',
+      info: 'An experimental electronic blend with Indian classical vocals, presenting an infectious, upbeat energy.'
+    },
+    { 
+      title: 'Astroworld', 
+      artist: 'Travis Scott',   
+      src: 'photos/new_album18.png',
+      info: 'A psychedelic trap spectacle filled with dizzying beat switches, massive features, and immersive atmosphere.'
+    },
+    { 
+      title: 'Rockstar', 
+      artist: 'A.R. Rahman',   
+      src: 'photos/new_album19.png',
+      info: 'A monumental rock and Sufi fusion soundtrack defining the passionate journey of a troubled artist.'
+    },
+    { 
+      title: 'Rang De Basanti', 
+      artist: 'A.R. Rahman',   
+      src: 'photos/new_album20.png',
+      info: 'An anthem-heavy album blending traditional Indian melodies with contemporary sounds to evoke youthful rebellion.'
+    },
+    { 
+      title: 'WE DON\'T TRUST YOU', 
+      artist: 'Future & Metro Boomin',   
+      src: 'photos/new_album21.png',
+      info: 'A cinematic and hard-hitting collaborative masterpiece defining the modern trap sound with dark, booming production.'
+    },
+    { 
+      title: 'IGOR', 
+      artist: 'Tyler, the Creator',   
+      src: 'photos/new_album22.png',
+      info: 'A genre-defying, emotionally raw breakup album that masterfully blends soul, synth-pop, and hip-hop into a cohesive narrative.'
+    },
+    { 
+      title: 'USB', 
+      artist: 'Fred again..',   
+      src: 'photos/new_album23.png',
+      info: 'A dynamic and high-energy electronic album combining raw club anthems, infectious beats, and masterful sampling.'
+    },
+    { 
+      title: 'Flower Boy', 
+      artist: 'Tyler, the Creator',   
+      src: 'photos/new_album24.png',
+      info: 'A lush, introspective project featuring beautiful orchestration and themes of loneliness, identity, and growth.'
+    },
+    { 
+      title: 'ye', 
+      artist: 'Kanye West',   
+      src: 'photos/new_album25.png',
+      info: 'A brief, highly vulnerable, and personal album exploring mental health, family, and self-acceptance against the backdrop of Wyoming mountains.'
+    },
+    { 
+      title: 'Actual Life 3 (January 1 - September 9 2022)', 
+      artist: 'Fred again..',   
+      src: 'photos/new_album26.png',
+      info: 'An emotional electronic diary that turns personal struggles and candid audio clips into uplifting dance music.'
+    },
+    { 
+      title: 'Scorpion', 
+      artist: 'Drake',   
+      src: 'photos/new_album27.png',
+      info: 'A massive double album balancing rap bravado and R&B vulnerability, packed with record-breaking hits.'
+    },
+    { 
+      title: 'Nayaab', 
+      artist: 'Seedhe Maut',   
+      src: 'photos/new_album28.png',
+      info: 'A revolutionary project in the Indian hip-hop scene, celebrated for its raw lyricism, stellar production, and dynamic flows.'
+    }
   ];
 
   const cards    = Array.from(stage.querySelectorAll('.album-card'));
@@ -713,8 +913,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const amTitle = document.getElementById('amTitle');
   const amArtist = document.getElementById('amArtist');
   const amInfo = document.getElementById('amInfo');
-  const amSpotify = document.getElementById('amSpotify');
-  const amApple = document.getElementById('amApple');
 
   /* ── Apply positions ── */
   function render() {
@@ -760,8 +958,6 @@ document.addEventListener('DOMContentLoaded', () => {
     amTitle.textContent = album.title;
     amArtist.textContent = album.artist;
     amInfo.textContent = album.info;
-    amSpotify.href = album.spotify;
-    amApple.href = album.apple;
     modal.classList.add('active');
     clearInterval(autoTimer); // Pause carousel
   }

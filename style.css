@@ -1434,6 +1434,70 @@ body:hover .cursor { opacity: 1; }
   letter-spacing: 0.04em;
 }
 
+/* ── Like System ── */
+.like-heart-anim {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  font-size: 5rem;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10;
+  filter: drop-shadow(0 0 20px rgba(232,130,12,0.8));
+}
+
+.like-heart-anim.animate {
+  animation: doubleTapHeart 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+
+@keyframes doubleTapHeart {
+  0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  15% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
+  30% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  70% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+}
+
+.like-badge {
+  position: absolute;
+  bottom: 1rem;
+  right: 1rem;
+  background: rgba(16,13,10,0.6);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,0.1);
+  padding: 0.4rem 0.8rem;
+  border-radius: 99px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  z-index: 5;
+  transition: transform 0.3s ease, background 0.3s ease;
+  cursor: pointer;
+}
+
+.like-badge:hover {
+  transform: scale(1.05);
+  background: rgba(16,13,10,0.8);
+}
+
+.like-icon {
+  font-size: 1rem;
+  transition: transform 0.2s ease;
+}
+
+.like-badge.liked .like-icon {
+  transform: scale(1.2);
+  filter: drop-shadow(0 0 8px rgba(255,0,0,0.6));
+}
+
+.like-count {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fff;
+  font-family: var(--font-main);
+}
+
 /* ============================================================
    LIGHTBOX
    ============================================================ */
