@@ -437,7 +437,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function fetchGlobalCount(photoId, countEl) {
     try {
-      const res = await fetch(API_BASE + photoId);
+      const res = await fetch(API_BASE + photoId + '/');
       const data = await res.json();
       if (data && data.count !== undefined) {
         countEl.textContent = data.count;
